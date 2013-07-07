@@ -22,11 +22,10 @@ References:
 */
 
 var fs = require('fs');
+var rest = require('restler');
 var program = require('commander');
 var cheerio = require('cheerio');
-var rest = require('restler');
 var HTMLFILE_DEFAULT = "index.html";
-var URL_DEFAULT = "http://intense-reaches-7537.herokuapp.com";
 var CHECKSFILE_DEFAULT = "checks.json";
 
 var assertFileExists = function(infile) {
@@ -37,31 +36,31 @@ var assertFileExists = function(infile) {
     }
     return instr;
 };
-var getUrl = function(url) {
-    rest.get(url).on("complete", function(result, response) {
-	if (result instanceof Error) {
-	    console.error('Error getting webpage.');
-	    process.exit(1);
-	} else {
-	    return result;
-	}
-    });
+var prepareURL = function(infile) {
+    var instr = infile.toString();
+    return instr;
+};
+
+var cheerioHtmlFile = function(htmlfile) {
+    return cheerio.load(fs.readFileSync(htmlfile));
 };
 
 var loadChecks = function(checksfile) {
     return JSON.parse(fs.readFileSync(checksfile));
 };
-var handleHtmlFile = function(htmlfile, checksfile){
-    return doChecks(fs.readFileSync(htmlfile), checksfile);
-};
-var handleWebpage = function(url, checksfile) {
-  rest.get(url).on("complete", function(result, response) {
-      return doChecks(result, checksfile);
-  });  
-};
-var doChecks = function(html, checksfile) {
-    // Handle parsing any html file
+var checkHtml = function(html, checksfile) {
     $ = cheerio.load(html);
+    var checks = loadChecks(checksfile).sort();
+    var out = {};
+    for(var ii in checks) {
+	var present = $(checks[ii]).length > 0;
+	out[checks[ii]] = present;
+    }
+    return out;
+};
+
+var checkHtmlFile = function(htmlfile, checksfile) {
+    $ = cheerioHtmlFile(htmlfile);
     var checks = loadChecks(checksfile).sort();
     var out = {};
     for(var ii in checks) {
@@ -70,28 +69,30 @@ var doChecks = function(html, checksfile) {
     }
     return out;
 };
+
 var clone = function(fn) {
     // Workaround for commander.js issue.
     // http://stackoverflow.com/a/6772648
     return fn.bind({});
 };
-var output2console = function(checkJson) {
-    var outJson = JSON.stringify(checkJson, null, 4);
-    console.log(outJson);
-};
 
 if(require.main == module) {
     program
         .option('-c, --checks <check_file>', 'Path to checks.json', clone(assertFileExists), CHECKSFILE_DEFAULT)
-        .option('-f, --file <html_file>', 'Path to index.html', clone(assertFileExists), HTMLFILE_DEFAULT)
-	.option('-u, --url <url>', 'URL to webpage', clone(getUrl))
+        .option('-f, --file <html_file>', 'Path to index.html', clone(assertFileExists))
+	.option('-u, --url <url>', 'URL for webpage', clone(prepareURL))
 	.parse(process.argv);
     if (program.url) {
-	output2console(handleWebpage(program.url, program.checks));
-    } else if (program.file) {
-	output2console(handleHtmlFile(program.file, program.checks));
-    } else {
-	program.help();
+	rest.get(program.url).on('complete', function(result, response) {
+	    var checkJson = checkHtml(result, program.checks);
+	    var outJson = JSON.stringify(checkJson, null, 4);
+	    console.log(outJson);
+	});
+    }
+    if (program.file) {
+	var checkJson = checkHtmlFile(program.file, program.checks);
+	var outJson = JSON.stringify(checkJson, null, 4);
+	console.log(outJson);
     }
 } else {
     exports.checkHtmlFile = checkHtmlFile;
